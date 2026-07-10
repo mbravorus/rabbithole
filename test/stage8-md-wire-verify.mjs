@@ -271,9 +271,64 @@ async function runMarkdownWireFixture() {
   console.log("ok stage8: markdown-only hydration/SSE, tool shapes, streaming, and frozen export");
 }
 
+// Regression for a real bug: a streamed chunk boundary landing right after a
+// bare closing fence line (no trailing newline yet) used to glue the next
+// chunk onto the same line — "```## Heading" — so the fence never actually
+// closed and the renderer swallowed everything after it (including later
+// fences) as literal show-fence body. answerBranch must insert the newline
+// that dangling fence line always needed, regardless of how chunks were split.
+async function runDanglingFenceBoundaryFixture() {
+  const opened = await openRabbithole({ title: "Stage 8 Fence Boundary", content: "Root" });
+  const session = getSession(opened.session_id);
+  const requestId = "req-fence-boundary";
+  const nodeId = "node-fence-boundary";
+  await postEvent(session, {
+    type: "branch_request",
+    request_id: requestId,
+    node_id: nodeId,
+    parent_id: session.rootId,
+    selected_text: "Root",
+    question: "Explain",
+    lens: null,
+    anchor: { offset_start: 0, offset_end: 4 },
+    branch_type: "selection",
+    position: { x: 0, y: 0 },
+    size: { w: 420, h: 460 },
+  });
+  await openRabbithole({ holeId: session.holeId });
+
+  const showBlock = "Intro.\n\n```show\n<style>.x{color:red}</style>\n<div>Hello</div>\n```";
+  await answerBranch({ sessionId: session.id, requestId, content: showBlock, partial: true });
+  await answerBranch({
+    sessionId: session.id,
+    requestId,
+    title: "Fence Boundary",
+    content: "## Next heading\n\nMore prose after.",
+  });
+  const answered = session.outboundEvents.find((event) => event.data.type === "node_answered" && event.data.node_id === nodeId)?.data;
+  assert(answered, "node_answered event should be broadcast");
+
+  const expected = showBlock + "\n" + "## Next heading\n\nMore prose after.";
+  assert.equal(answered.markdown, expected, "a newline should be inserted at the dangling-fence chunk boundary");
+  assert(!answered.markdown.includes("```## Next heading"), "the fence line and the heading must never end up on the same line");
+
+  const renderer = createMarkdownRenderer({
+    encodeBase64: encodeBase64Utf8,
+    resolveAssetUrl: (name) => `/assets/${name}`,
+  });
+  const html = renderer.renderMarkdownToHtml(answered.markdown);
+  const vizSrc = Buffer.from(html.match(/data-src="([^"]+)"/)[1], "base64").toString("utf8");
+  assert.equal(vizSrc, "<style>.x{color:red}</style>\n<div>Hello</div>", "the show fence must close at its own closer, not swallow later content");
+  assertIncludes(html, "<h2", "the heading after the fence must render as an actual heading, not leak inside the viz body");
+  assertIncludes(html, "More prose after.", "prose after the fence must render as normal markdown text");
+
+  console.log("ok stage8: streamed chunk boundary after a dangling fence line gets a newline, not a swallowed document");
+}
+
 try {
   await runRendererGoldenFixtures();
   await runMarkdownWireFixture();
+  await runDanglingFenceBoundaryFixture();
 } finally {
   await closeAllSessions("stage8_test_complete");
 }

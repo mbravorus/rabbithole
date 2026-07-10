@@ -36,6 +36,21 @@ function maxBlockMs() {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_MAX_BLOCK_MS;
 }
 
+// A code-fence delimiter line (``` or ~~~, optionally indented, no info
+// string) must be alone on its own line per CommonMark. If a streamed answer
+// chunk boundary lands right after such a line with no trailing newline yet,
+// naively concatenating the next chunk glues it onto the same line (e.g. a
+// ```show fence's closer becomes "```## Some Heading") — the fence never
+// actually closes, and the renderer keeps scanning for the next bare fence
+// line anywhere later in the document, silently swallowing everything in
+// between (headings, prose, other fences) as literal fence body. Inserting
+// the newline the delimiter line always needed anyway closes this class of
+// bug regardless of how the caller happened to split their chunks.
+const DANGLING_FENCE_LINE_RE = /(^|\n)( {0,3})(`{3,}|~{3,})[ \t]*$/;
+function appendStreamedMarkdown(buffered, chunk) {
+  return buffered && DANGLING_FENCE_LINE_RE.test(buffered) ? buffered + "\n" + chunk : buffered + chunk;
+}
+
 /**
  * One live Rabbithole: the node tree, the browser transport, and the
  * agent-facing event queue. The agent blocks on waitForEvent(); the browser
@@ -516,7 +531,7 @@ export class RabbitHoleSession {
     // away — the request stays claimable, the watchdog stays armed (a death
     // mid-stream should still surface as stalled), and nothing persists yet.
     if (partial) {
-      const markdown = (node.markdown || "") + String(content ?? "");
+      const markdown = appendStreamedMarkdown(node.markdown || "", String(content ?? ""));
       this.dispatchHoleEvent({
         type: "node_progress",
         node_id: node.id,
@@ -548,7 +563,7 @@ export class RabbitHoleSession {
     const answered = {
       ...node,
       ...baseUrlFields,
-      markdown: buffered && !tail.startsWith(buffered) ? buffered + tail : tail,
+      markdown: buffered && !tail.startsWith(buffered) ? appendStreamedMarkdown(buffered, tail) : tail,
       title: String(title ?? node.title ?? "Untitled").trim() || "Untitled",
       status: "answered",
       // Fresh answers land unread; the client flips this the moment the human
