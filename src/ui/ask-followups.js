@@ -4,6 +4,7 @@ import {
   DEFAULT_CHILD,
   LENSES,
   ask,
+  askCopy,
   askGo,
   askText,
   canvasBuilt,
@@ -13,6 +14,7 @@ import {
   composerSend,
   composerText,
   connLost,
+  copyText,
   currentNodeId,
   easeOutMotion,
   flashHint,
@@ -78,7 +80,26 @@ export function initAskFollowups(){
     hideAsk();
   });
   document.addEventListener("mouseup", function(e){ if (inAsk(e)) return; setTimeout(maybeShowAsk, 0); });
+  // Selecting text no longer steals focus into the ask box (see maybeShowAsk),
+  // so the browser's native selection is still there for a native copy. This
+  // fallback restores "just start typing" without needing focus up front: it
+  // only runs while the popup is visible and askText itself isn't focused yet,
+  // and it never touches Cmd/Ctrl/Alt combos — those (Cmd+C included) pass
+  // straight through to the still-live selection.
+  document.addEventListener("keydown", function(e){
+    if (!ask.classList.contains("visible") || document.activeElement === askText) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "Escape"){ hideAsk(); return; }
+    if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); submitAsk(null, "keyboard"); return; }
+    if (LENS_KEYS[e.key]){ e.preventDefault(); submitAsk(LENS_KEYS[e.key], "keyboard"); return; }
+    // Any other single printable character: hand off focus so the keystroke
+    // lands in the box the same way it would have before, just a beat later.
+    if (e.key.length === 1) askText.focus();
+  });
   askGo.addEventListener("click", function(e){ submitAsk(null, motionSourceFromEvent(e)); });
+  askCopy.addEventListener("click", function(){
+    if (pendingAsk) copyText(pendingAsk.selectedText, "Copied selection");
+  });
   document.getElementById("ask-lenses").addEventListener("click", function(e){
     var b = e.target.closest ? e.target.closest(".lens") : null;
     if (b) submitAsk(b.getAttribute("data-lens"), motionSourceFromEvent(e));
@@ -134,7 +155,12 @@ function inAsk(e){ return e.target && e.target.closest && e.target.closest("#ask
     setSurfaceOrigin(ask, rect);
     // Grow only once visible — scrollHeight reads 0 inside display:none.
     autoGrowEl(askText, 110);
-    askText.focus();
+    // Deliberately not focused here: focusing askText would collapse the
+    // browser's real text Selection (the highlight above is a separate,
+    // decorative CSS Custom Highlight that survives that collapse), so a
+    // human trying to just copy the passage they selected would find nothing
+    // left to copy. The keydown fallback in initAskFollowups() hands off
+    // focus the moment they actually start typing a question instead.
   }
   var pendingAsk = null;
 export function hideAsk(){ ask.classList.remove("visible"); pendingAsk = null; clearAskHighlight(); }

@@ -52,6 +52,7 @@ export var edgesSvg = null;
 export var ask = null;
 export var askText = null;
 export var askGo = null;
+export var askCopy = null;
 export var zoomLabel = null;
 export var hintEl = null;
 export var bannerEl = null;
@@ -118,6 +119,7 @@ export function initCore(inputHydration) {
   ask = document.getElementById("ask");
   askText = document.getElementById("ask-text");
   askGo = document.getElementById("ask-go");
+  askCopy = document.getElementById("ask-copy");
   zoomLabel = document.getElementById("zoom-label");
   hintEl = document.getElementById("hint");
   bannerEl = document.getElementById("banner");
@@ -477,4 +479,19 @@ export function flashHint(msg){
   hintEl.textContent = msg;
   hintEl.classList.add("flash");
   hintTimer = setTimeout(function(){ hintTimer = 0; hintEl.classList.remove("flash"); }, 4000);
+}
+
+// Shared clipboard helper (share-menu doc/trail copy, ask-popup selection copy).
+export function copyText(text, okMsg){
+  function done(){ flashHint(okMsg); }
+  function legacy(){
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch(err){}
+    document.body.removeChild(ta);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done, function(){ legacy(); done(); });
+  } else { legacy(); done(); }
 }

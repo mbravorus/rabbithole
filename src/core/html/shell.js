@@ -54,6 +54,7 @@ export const CANVAS_SHELL = `
 <div id="ask">
   <div class="ask-input">
     <textarea id="ask-text" rows="1" placeholder="Ask about this… ↵ = Explain"></textarea>
+    <button class="copy-btn" id="ask-copy" type="button" title="Copy selected text" aria-label="Copy selected text"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M3.5 10.5v-6A1.5 1.5 0 0 1 5 3h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
     <button class="send-btn" id="ask-go" title="Ask (↵)" aria-label="Ask"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 12.8V3.6M8 3.6 3.9 7.7M8 3.6l4.1 4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   </div>
   <div class="ask-lenses" id="ask-lenses">

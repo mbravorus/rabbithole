@@ -2,6 +2,7 @@ import {
   confirmEl,
   canvasBuilt,
   childrenOf,
+  copyText,
   currentNodeId,
   esc,
   flashHint,
@@ -157,19 +158,6 @@ export function closeShare(){
     if (shareTrap){ shareTrap(); shareTrap = null; }
   }
 
-  function copyText(text, okMsg){
-    function done(){ flashHint(okMsg); }
-    function legacy(){
-      var ta = document.createElement("textarea");
-      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-      document.body.appendChild(ta); ta.select();
-      try { document.execCommand("copy"); } catch(err){}
-      document.body.removeChild(ta);
-    }
-    if (navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(text).then(done, function(){ legacy(); done(); });
-    } else { legacy(); done(); }
-  }
   // Markdown reconstructions — the raw source rides in hydration/broadcasts.
   function originLine(n){
     if (!n.origin) return "";

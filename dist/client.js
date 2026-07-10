@@ -36,9 +36,9 @@ var RabbitholeClient = (() => {
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
   var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
-  // node_modules/highlight.js/lib/core.js
+  // ../../../node_modules/highlight.js/lib/core.js
   var require_core = __commonJS({
-    "node_modules/highlight.js/lib/core.js"(exports, module) {
+    "../../../node_modules/highlight.js/lib/core.js"(exports, module) {
       function deepFreeze(obj) {
         if (obj instanceof Map) {
           obj.clear = obj.delete = obj.set = function() {
@@ -1809,6 +1809,7 @@ var RabbitholeClient = (() => {
   var ask = null;
   var askText = null;
   var askGo = null;
+  var askCopy = null;
   var zoomLabel = null;
   var hintEl = null;
   var bannerEl = null;
@@ -1878,6 +1879,7 @@ var RabbitholeClient = (() => {
     ask = document.getElementById("ask");
     askText = document.getElementById("ask-text");
     askGo = document.getElementById("ask-go");
+    askCopy = document.getElementById("ask-copy");
     zoomLabel = document.getElementById("zoom-label");
     hintEl = document.getElementById("hint");
     bannerEl = document.getElementById("banner");
@@ -2294,6 +2296,33 @@ var RabbitholeClient = (() => {
       hintTimer = 0;
       hintEl.classList.remove("flash");
     }, 4e3);
+  }
+  function copyText(text2, okMsg) {
+    function done() {
+      flashHint(okMsg);
+    }
+    function legacy() {
+      var ta = document.createElement("textarea");
+      ta.value = text2;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+      } catch (err) {
+      }
+      document.body.removeChild(ta);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text2).then(done, function() {
+        legacy();
+        done();
+      });
+    } else {
+      legacy();
+      done();
+    }
   }
 
   // src/ui/visuals.js
@@ -3766,8 +3795,30 @@ var RabbitholeClient = (() => {
       if (inAsk(e)) return;
       setTimeout(maybeShowAsk, 0);
     });
+    document.addEventListener("keydown", function(e) {
+      if (!ask.classList.contains("visible") || document.activeElement === askText) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Escape") {
+        hideAsk();
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        submitAsk(null, "keyboard");
+        return;
+      }
+      if (LENS_KEYS[e.key]) {
+        e.preventDefault();
+        submitAsk(LENS_KEYS[e.key], "keyboard");
+        return;
+      }
+      if (e.key.length === 1) askText.focus();
+    });
     askGo.addEventListener("click", function(e) {
       submitAsk(null, motionSourceFromEvent(e));
+    });
+    askCopy.addEventListener("click", function() {
+      if (pendingAsk) copyText(pendingAsk.selectedText, "Copied selection");
     });
     document.getElementById("ask-lenses").addEventListener("click", function(e) {
       var b = e.target.closest ? e.target.closest(".lens") : null;
@@ -3835,7 +3886,6 @@ var RabbitholeClient = (() => {
     ask.classList.add("visible");
     setSurfaceOrigin(ask, rect);
     autoGrowEl(askText, 110);
-    askText.focus();
   }
   var pendingAsk = null;
   function hideAsk() {
@@ -4681,6 +4731,7 @@ var RabbitholeClient = (() => {
 <div id="ask">
   <div class="ask-input">
     <textarea id="ask-text" rows="1" placeholder="Ask about this\u2026 \u21B5 = Explain"></textarea>
+    <button class="copy-btn" id="ask-copy" type="button" title="Copy selected text" aria-label="Copy selected text"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M3.5 10.5v-6A1.5 1.5 0 0 1 5 3h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
     <button class="send-btn" id="ask-go" title="Ask (\u21B5)" aria-label="Ask"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 12.8V3.6M8 3.6 3.9 7.7M8 3.6l4.1 4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   </div>
   <div class="ask-lenses" id="ask-lenses">
@@ -4993,33 +5044,6 @@ var RabbitholeClient = (() => {
       shareTrap = null;
     }
   }
-  function copyText(text2, okMsg) {
-    function done() {
-      flashHint(okMsg);
-    }
-    function legacy() {
-      var ta = document.createElement("textarea");
-      ta.value = text2;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand("copy");
-      } catch (err) {
-      }
-      document.body.removeChild(ta);
-    }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text2).then(done, function() {
-        legacy();
-        done();
-      });
-    } else {
-      legacy();
-      done();
-    }
-  }
   function originLine(n) {
     if (!n.origin) return "";
     if (n.origin.synthesis) return "> \u2726 Synthesis of the whole Rabbithole\n\n";
@@ -5164,7 +5188,7 @@ var RabbitholeClient = (() => {
     updateSince();
   }
 
-  // node_modules/marked/lib/marked.esm.js
+  // ../../../node_modules/marked/lib/marked.esm.js
   function _getDefaults() {
     return {
       async: false,
@@ -7310,7 +7334,7 @@ ${text2}</tr>
   var parser = _Parser.parse;
   var lexer = _Lexer.lex;
 
-  // node_modules/katex/dist/katex.mjs
+  // ../../../node_modules/katex/dist/katex.mjs
   var ParseError = class _ParseError extends Error {
     // The underlying error message without any context added.
     constructor(message, token) {
@@ -21638,11 +21662,11 @@ ${text2}</tr>
     __domTree
   };
 
-  // node_modules/highlight.js/es/core.js
+  // ../../../node_modules/highlight.js/es/core.js
   var import_core8 = __toESM(require_core(), 1);
   var core_default = import_core8.default;
 
-  // node_modules/highlight.js/es/languages/bash.js
+  // ../../../node_modules/highlight.js/es/languages/bash.js
   function bash(hljs) {
     const regex = hljs.regex;
     const VAR = {};
@@ -22036,7 +22060,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/c.js
+  // ../../../node_modules/highlight.js/es/languages/c.js
   function c(hljs) {
     const regex = hljs.regex;
     const C_LINE_COMMENT_MODE = hljs.COMMENT("//", "$", { contains: [{ begin: /\\\n/ }] });
@@ -22330,7 +22354,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/cpp.js
+  // ../../../node_modules/highlight.js/es/languages/cpp.js
   function cpp(hljs) {
     const regex = hljs.regex;
     const C_LINE_COMMENT_MODE = hljs.COMMENT("//", "$", { contains: [{ begin: /\\\n/ }] });
@@ -22873,7 +22897,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/csharp.js
+  // ../../../node_modules/highlight.js/es/languages/csharp.js
   function csharp(hljs) {
     const BUILT_IN_KEYWORDS = [
       "bool",
@@ -23273,7 +23297,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/css.js
+  // ../../../node_modules/highlight.js/es/languages/css.js
   var MODES = (hljs) => {
     return {
       IMPORTANT: {
@@ -24210,7 +24234,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/diff.js
+  // ../../../node_modules/highlight.js/es/languages/diff.js
   function diff(hljs) {
     const regex = hljs.regex;
     return {
@@ -24263,7 +24287,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/dockerfile.js
+  // ../../../node_modules/highlight.js/es/languages/dockerfile.js
   function dockerfile(hljs) {
     const KEYWORDS3 = [
       "from",
@@ -24297,7 +24321,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/go.js
+  // ../../../node_modules/highlight.js/es/languages/go.js
   function go(hljs) {
     const LITERALS3 = [
       "true",
@@ -24451,7 +24475,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/java.js
+  // ../../../node_modules/highlight.js/es/languages/java.js
   var decimalDigits = "[0-9](_*[0-9])*";
   var frac = `\\.(${decimalDigits})`;
   var hexDigits = "[0-9a-fA-F](_*[0-9a-fA-F])*";
@@ -24705,7 +24729,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/javascript.js
+  // ../../../node_modules/highlight.js/es/languages/javascript.js
   var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
   var KEYWORDS = [
     "as",
@@ -25406,7 +25430,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/json.js
+  // ../../../node_modules/highlight.js/es/languages/json.js
   function json(hljs) {
     const ATTRIBUTE = {
       className: "attr",
@@ -25446,7 +25470,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/kotlin.js
+  // ../../../node_modules/highlight.js/es/languages/kotlin.js
   var decimalDigits2 = "[0-9](_*[0-9])*";
   var frac2 = `\\.(${decimalDigits2})`;
   var hexDigits2 = "[0-9a-fA-F](_*[0-9a-fA-F])*";
@@ -25701,7 +25725,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/latex.js
+  // ../../../node_modules/highlight.js/es/languages/latex.js
   function latex(hljs) {
     const regex = hljs.regex;
     const KNOWN_CONTROL_WORDS = regex.either(...[
@@ -25972,7 +25996,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/markdown.js
+  // ../../../node_modules/highlight.js/es/languages/markdown.js
   function markdown(hljs) {
     const regex = hljs.regex;
     const INLINE_HTML = {
@@ -26204,7 +26228,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/php.js
+  // ../../../node_modules/highlight.js/es/languages/php.js
   function php(hljs) {
     const regex = hljs.regex;
     const NOT_PERL_ETC = /(?![A-Za-z0-9])(?![$])/;
@@ -26805,7 +26829,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/plaintext.js
+  // ../../../node_modules/highlight.js/es/languages/plaintext.js
   function plaintext(hljs) {
     return {
       name: "Plain text",
@@ -26817,7 +26841,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/python.js
+  // ../../../node_modules/highlight.js/es/languages/python.js
   function python(hljs) {
     const regex = hljs.regex;
     const IDENT_RE3 = /[\p{XID_Start}_]\p{XID_Continue}*/u;
@@ -27232,7 +27256,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/r.js
+  // ../../../node_modules/highlight.js/es/languages/r.js
   function r(hljs) {
     const regex = hljs.regex;
     const IDENT_RE3 = /(?:(?:[a-zA-Z]|\.[._a-zA-Z])[._a-zA-Z0-9]*)|\.(?!\d)/;
@@ -27442,7 +27466,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/ruby.js
+  // ../../../node_modules/highlight.js/es/languages/ruby.js
   function ruby(hljs) {
     const regex = hljs.regex;
     const RUBY_METHOD_RE = "([a-zA-Z_]\\w*[!?=]?|[-+~]@|<<|>>|=~|===?|<=>|[<>]=?|\\*\\*|[-/+%^&*~`|]|\\[\\]=?)";
@@ -27855,7 +27879,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/rust.js
+  // ../../../node_modules/highlight.js/es/languages/rust.js
   function rust(hljs) {
     const regex = hljs.regex;
     const RAW_IDENTIFIER = /(r#)?/;
@@ -28168,7 +28192,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/scala.js
+  // ../../../node_modules/highlight.js/es/languages/scala.js
   function scala(hljs) {
     const regex = hljs.regex;
     const ANNOTATION = {
@@ -28359,7 +28383,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/shell.js
+  // ../../../node_modules/highlight.js/es/languages/shell.js
   function shell(hljs) {
     return {
       name: "Shell Session",
@@ -28383,7 +28407,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/sql.js
+  // ../../../node_modules/highlight.js/es/languages/sql.js
   function sql(hljs) {
     const regex = hljs.regex;
     const COMMENT_MODE = hljs.COMMENT("--", "$");
@@ -29026,7 +29050,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/swift.js
+  // ../../../node_modules/highlight.js/es/languages/swift.js
   function source(re) {
     if (!re) return null;
     if (typeof re === "string") return re;
@@ -29901,7 +29925,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/typescript.js
+  // ../../../node_modules/highlight.js/es/languages/typescript.js
   var IDENT_RE2 = "[A-Za-z$_][0-9A-Za-z$_]*";
   var KEYWORDS2 = [
     "as",
@@ -30715,7 +30739,7 @@ ${text2}</tr>
     return tsLanguage;
   }
 
-  // node_modules/highlight.js/es/languages/xml.js
+  // ../../../node_modules/highlight.js/es/languages/xml.js
   function xml(hljs) {
     const regex = hljs.regex;
     const TAG_NAME_RE = regex.concat(/[\p{L}_]/u, regex.optional(/[\p{L}0-9_.-]*:/u), /[\p{L}0-9_.-]*/u);
@@ -30941,7 +30965,7 @@ ${text2}</tr>
     };
   }
 
-  // node_modules/highlight.js/es/languages/yaml.js
+  // ../../../node_modules/highlight.js/es/languages/yaml.js
   function yaml(hljs) {
     const LITERALS3 = "true false yes no null";
     const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";

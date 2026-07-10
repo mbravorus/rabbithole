@@ -70,6 +70,11 @@ body.agent-down .activity.writing { display: none; }
 .send-btn:not(:disabled):hover { filter: brightness(1.07); }
 .send-btn:not(:disabled):active { transform: scale(0.97); }
 .send-btn svg { display: block; }
+.copy-btn { width: 26px; height: 26px; border-radius: 50%; border: none; flex-shrink: 0; padding: 0; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  background: transparent; color: var(--fg-faint); transition: background 0.18s, color 0.18s, transform 120ms cubic-bezier(0.23, 1, 0.32, 1); }
+.copy-btn:hover { background: var(--hl); color: var(--fg-dim); }
+.copy-btn:active { transform: scale(0.97); }
+.copy-btn svg { display: block; }
 
 /* ---------- shared document typography (em-based so text zoom scales it) ---------- */
 .md { font-family: var(--font-doc); line-height: 1.72; color: var(--fg); font-kerning: normal; overflow-wrap: break-word; }
@@ -192,7 +197,7 @@ body.agent-down .stream-caret, body.session-over .stream-caret { animation: none
 @media (prefers-reduced-motion: reduce) {
   .loading-bunny, .stream-caret, .activity .act-dot { animation: none; }
   .math-pending::after, .viz-pending::after { animation: none; }
-  .send-btn, .doc-content mark.hl::after, .composer-inner, .node-act-divider, .tool-icon, .node-btn.danger, .node-font-btn,
+  .send-btn, .copy-btn, .doc-content mark.hl::after, .composer-inner, .node-act-divider, .tool-icon, .node-btn.danger, .node-font-btn,
   .node${""}::after, .node.node-enter, .nc-handle, .nc-inner, #ask, #peek, #sharemenu, #confirm { transition: none !important; }
   #ask, #peek, #sharemenu, #confirm, .node.node-enter { transform: none; }
   .node.node-enter { opacity: 1; }
