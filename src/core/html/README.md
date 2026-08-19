@@ -6,13 +6,26 @@ and CSS live as pure template strings here, while Node-only assembly lives under
 
 - `styles.js` contains the inline stylesheet.
 - `shell.js` contains the static DOM shell.
+- `icons.js` is the only product-facing icon registry. Curated Ionicons source
+  is normalized into `ionicons5.generated.js` by `npm run generate:icons`; the
+  generated data is committed so production installs never need the source pack.
+- `icon-selection.js` is the editable role-to-icon map. Run
+  `npm run icons:studio` and open `http://127.0.0.1:4178` to compare every
+  Ionicons 5 glyph in the real light, dark, navigation, and control contexts.
+  Draft choices remain local until **Apply to Rabbithole** regenerates the
+  curated payload and committed UI bundles.
 - `src/node/html/canvas.js` assembles the document and owns the public
   `buildCanvasHtml(...)` API for the MCP host.
 - `src/node/html/built-assets.js` reads committed files from `dist/`:
-  `client.js`, `frozen-client.js`, `katex.css`, and `dompurify.js`.
+  `client.js`, `frozen-client.js`, `katex.css`, `dompurify.js`, and the pinned
+  `mermaid.js` runtime.
+- `src/node/html/dev-reload.js` holds the `RABBITHOLE_DEV` loop: with it unset
+  those reads stay frozen at first access, and with it set both the bundles and
+  the `src/core/` template modules are re-read per page load so a browser reload
+  shows a rebuild without restarting the MCP server.
 - `src/web/` is the standalone static web host. `npm run build` writes
-  `web/dist/` (ignored) with `index.html`, `app.js`, CSS, DOMPurify, and frozen
-  snapshot source. `scripts/check-dist.mjs` intentionally compares only the
+  `web/dist/` (ignored) with `index.html`, `app.js`, CSS, DOMPurify, Mermaid,
+  and frozen snapshot source. `scripts/check-dist.mjs` intentionally compares only the
   committed MCP `dist/` artifacts.
 - `src/ui/*.js` are the browser runtime source modules. Edit those, then run
   `npm run build` and commit the resulting `dist/` changes.
@@ -35,28 +48,35 @@ and CSS live as pure template strings here, while Node-only assembly lives under
 - The share menu's Download snapshot flow is client-generated: it serializes the
   current markdown state, fetches referenced `asset:` files as data URIs, and
   writes a frozen single-file HTML using `dist/frozen-client.js`. The `/export`
-  route remains a compatibility shim that packages the same frozen hydration
-  shape server-side.
+  route packages the same frozen projection server-side.
 
 Behavior-preserving rules:
 
 - The served page and `/export` must stay single-file HTML with no external
   asset requests.
+- MCP pages carry Mermaid as inert script text and activate it only when a
+  Mermaid fence mounts. Frozen snapshots include that carrier only when their
+  Markdown contains a Mermaid fence; the hosted web app loads the same pinned
+  file lazily from its own origin.
 - Frozen exports must not include live transport wiring (`EventSource` or
   `/sse`) or live asset route strings.
 - Do not read browser vendor assets from `node_modules` at runtime; vendor
   sources are inlined into `dist/` by `build.mjs`.
-- Verify final HTML by extracting the single inline `<script>` and running
+- After changing the curated Ionicons set or its normalization, run
+  `npm run generate:icons`. `npm run check:icons` guards against generated drift.
+- Verify final HTML by extracting the executable inline `<script>` and running
   `node --check` on that extracted script.
 - `npm run check:dist` must pass before changes land so `dist/` stays fresh.
 
 Web CSP:
 
-- `web/dist/index.html` sets `default-src 'self'`, keeps scripts self-only, allows
-  inline styles for the existing canvas runtime's dynamic positioning/sizing, and
-  pins `connect-src` to the
-  built-in BYOK providers plus localhost custom endpoints:
-  OpenRouter, OpenAI, Anthropic, `localhost`, and `127.0.0.1`.
+- `web/dist/index.html` sets `default-src 'self'`, keeps external scripts
+  self-only, and permits one hash-pinned inline script that selects the saved or
+  system theme before first paint. Inline styles remain allowed for the early
+  theme background and the canvas runtime's dynamic positioning/sizing.
+  `connect-src` is pinned to the OpenRouter BYOK provider, GitHub's public
+  repository metadata API for the project star count, plus local OpenAI-compatible
+  endpoints on `localhost` and `127.0.0.1`.
 - Remote custom providers are deliberately not wildcarded. To use one from the
   static app, edit the generated CSP (or rebuild with that origin added). This
   keeps the default shipped app from allowing arbitrary key-bearing requests.

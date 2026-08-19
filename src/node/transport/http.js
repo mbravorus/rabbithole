@@ -1,5 +1,5 @@
 const MAX_BODY_BYTES = 4 * 1024 * 1024; // 4 MB — answers can be large
-export const CLOSE_TIMEOUT_MS = 5000;
+const CLOSE_TIMEOUT_MS = 5000;
 
 export function buildJsonError(message, status = 400) {
   const err = new Error(message);
@@ -7,25 +7,43 @@ export function buildJsonError(message, status = 400) {
   return err;
 }
 
-export function parseRequestBody(req, res) {
+export function parseRequestBody(req, {
+  maxBytes = MAX_BODY_BYTES,
+  tooLargeError = buildJsonError("Request body too large", 413),
+} = {}) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let bytes = 0;
+    let settled = false;
 
-    req.on("data", (chunk) => {
+    const rejectTooLarge = () => {
+      if (settled) return;
+      settled = true;
+      chunks.length = 0;
+      req.removeListener("data", onData);
+      req.resume();
+      reject(tooLargeError);
+    };
+
+    const onData = (chunk) => {
       bytes += chunk.length;
-      if (bytes > MAX_BODY_BYTES) {
-        res.writeHead(413, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Request body too large" }));
-        req.destroy();
-        reject(buildJsonError("Request body too large", 413));
+      if (bytes > maxBytes) {
+        rejectTooLarge();
         return;
       }
       chunks.push(chunk);
-    });
+    };
 
+    const contentLength = Number(req.headers["content-length"]);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      rejectTooLarge();
+      return;
+    }
+
+    req.on("data", onData);
     req.on("end", () => {
-      if (bytes > MAX_BODY_BYTES) return;
+      if (settled) return;
+      settled = true;
       // Decode the whole buffer once — decoding per chunk would corrupt a
       // multi-byte UTF-8 character split across a chunk boundary.
       const body = Buffer.concat(chunks).toString("utf8");
@@ -40,13 +58,16 @@ export function parseRequestBody(req, res) {
       }
     });
 
-    req.on("error", reject);
+    req.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
   });
 }
 
-export function closeServerGracefully(server, { timeoutMs = CLOSE_TIMEOUT_MS, onForceClose, onClosed } = {}) {
+export function closeServerGracefully(server, { timeoutMs = CLOSE_TIMEOUT_MS, onClosed } = {}) {
   const timer = setTimeout(() => {
-    onForceClose?.();
     server.closeAllConnections?.();
   }, timeoutMs);
 

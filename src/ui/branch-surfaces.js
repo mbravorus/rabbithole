@@ -1,179 +1,125 @@
 import {
-  confirmEl,
   canvasBuilt,
   childrenOf,
   currentNodeId,
-  esc,
   flashHint,
   frozen,
   closed,
-  isUnread,
-  lensBadgeHtml,
-  lensLabel,
-  lineageNodes,
   mode,
-  motionSourceFromEvent,
   nodes,
-  peekEl,
-  playLandingCue,
+  postBrowserEvent,
   readerMain,
-  refreshAmbient,
   rootId,
   setCurrentNodeId,
-  setSurfaceOrigin,
-  shareMenu,
-  truncate,
-  updateSince
+  shareMenu
 } from "./core.js";
-import { sendFollowup } from "./ask-followups.js";
+import { isDockedNote, lensLabel, lineageNodesFromMap, truncate } from "../core/model.js";
 import {
   clearEdgeHighlight,
+  createNodeEl,
   drawEdges,
-  renderVisibility,
-  revealNode
+  fillBody,
+  renderVisibility
 } from "./canvas-view.js";
 import {
   openNode,
-  removeMarks,
-  removeThreadItem,
   renderBreadcrumb,
-  renderSidebar
+  renderMarginNotes,
+  renderReaderBody
 } from "./reader.js";
-import { mountVisuals } from "./visuals.js";
-import { downloadSnapshot } from "./snapshot.js";
-import { activateFocusTrap } from "./focus-trap.js";
+import { createAnchoredMenu } from "./primitives/anchored-menu.js";
+import { wireNotice } from "./primitives/notice.js";
+import { createModuleLifecycle } from "./lifecycle.js";
+import { detachNode, teardownNode } from "./node-teardown.js";
+import { removeMarks } from "./text-marks.js";
 
-var branchHooks = {
-  post: function(){ return Promise.resolve({ ok: true }); },
-  exportPortable: null
-};
+function defaultBranchHooks(){
+  return {
+    exportSnapshot: null,
+    exportPortable: null
+  };
+}
+
+var branchLifecycle = createModuleLifecycle({ defaults: defaultBranchHooks });
+var pendingRemoval = null;
+var undoNotice = null;
+var shareMenuController = null;
 
 export function registerBranchHooks(hooks) {
-  Object.assign(branchHooks, hooks || {});
+  branchLifecycle.register(hooks);
 }
 
   // ===========================================================================
-  // HOVER PEEK — glance at a branch from its mark without leaving the page
+  // MARKS ARE LINKS — a mark takes you to its branch, nothing hovers over it.
+  // The click/Enter wiring lives with the marks in reader.js.
   // ===========================================================================
-  var peekTimer = 0, peekFor = null;
 export function initBranchSurfaces(){
-  readerMain.addEventListener("mouseover", onReaderMarkMouseover);
-  readerMain.addEventListener("mouseout", onReaderMarkMouseout);
-  peekEl.addEventListener("mouseleave", function(){ hidePeek(); });
-  peekEl.addEventListener("click", function(){
-    var kid = peekFor && nodes[peekFor];
-    hidePeek();
-    if (kid) openNode(kid.id);
-  });
-  document.getElementById("r-share").addEventListener("click", function(e){ e.stopPropagation(); toggleShare(e.currentTarget); });
-  document.getElementById("t-share").addEventListener("click", function(e){ e.stopPropagation(); toggleShare(e.currentTarget); });
-  document.getElementById("sm-doc").addEventListener("click", onCopyDoc);
-  document.getElementById("sm-trail").addEventListener("click", onCopyTrail);
-  document.getElementById("sm-export").addEventListener("click", onExportSnapshot);
-  document.getElementById("sm-portable").addEventListener("click", onExportPortable);
-  document.getElementById("sm-synth").addEventListener("click", function(e){
-    closeShare();
-    synthesize(motionSourceFromEvent(e));
-  });
-  document.getElementById("cf-keep").addEventListener("click", hideConfirm);
-  document.getElementById("cf-remove").addEventListener("click", function(){
-    var node = confirmFor && nodes[confirmFor];
-    hideConfirm();
-    if (node) deleteBranch(node);
-  });
+  disposeBranchSurfaceResources(false);
+  var branchScope = branchLifecycle.beginInit();
+  try {
+  shareMenuController = createAnchoredMenu({ surface: shareMenu, placement: "bottom-end" });
+  branchScope.addCleanup(function(){ shareMenuController?.dispose(); shareMenuController = null; });
+  branchScope.listen(document.getElementById("t-share"), "click", function(e){ e.stopPropagation(); toggleShare(e.currentTarget, e.detail === 0); });
+  branchScope.listen(document.getElementById("sm-doc"), "click", onCopyDoc);
+  branchScope.listen(document.getElementById("sm-trail"), "click", onCopyTrail);
+  branchScope.listen(document.getElementById("sm-export"), "click", onExportSnapshot);
+  branchScope.listen(document.getElementById("sm-portable"), "click", onExportPortable);
+  undoNotice = wireNotice(document.getElementById("branch-undo"), { variant: "toast" });
+  branchScope.listen(document, "keydown", onUndoKeydown);
+  return disposeBranchSurfaces;
+  } catch (error) {
+    disposeBranchSurfaces();
+    throw error;
+  }
 }
 
-export function hidePeek(){
-    if (peekTimer){ clearTimeout(peekTimer); peekTimer = 0; }
-    peekFor = null;
-    peekEl.classList.remove("visible");
-  }
-  function showPeek(mark){
-    var kid = nodes[mark.dataset.child];
-    if (!kid || kid.status !== "answered") return;
-    peekFor = kid.id;
-    var badge = (kid.origin && kid.origin.synthesis) ? '<span class="lens-badge">✦ Synthesis</span>'
-      : (kid.origin && kid.origin.lens) ? lensBadgeHtml(kid.origin.lens) : "";
-    peekEl.innerHTML = '<div class="peek-title">' + (isUnread(kid) ? '<span class="pal-dot"></span>' : "") +
-      '<span>' + esc(kid.title || "Untitled") + '</span>' + badge + '</div>' +
-      '<div class="peek-body md">' + (kid.html || "") + '</div>' +
-      '<div class="peek-hint">Click to open</div>';
-    if (typeof mountVisuals === "function"){
-      var peekBody = peekEl.querySelector(".peek-body");
-      if (peekBody) mountVisuals(peekBody, "peek:" + kid.id);
-    }
-    var r = mark.getBoundingClientRect();
-    var top = r.bottom + 8;
-    if (top + peekEl.offsetHeight + 10 > window.innerHeight) top = Math.max(10, r.top - peekEl.offsetHeight - 8);
-    peekEl.style.left = Math.min(window.innerWidth - 360, Math.max(10, r.left)) + "px";
-    peekEl.style.top = top + "px";
-    peekEl.classList.add("visible");
-    setSurfaceOrigin(peekEl, r);
-  }
-  function onReaderMarkMouseover(e){
-    var m = e.target.closest && e.target.closest("mark[data-child]");
-    if (!m) return;
-    var kid = nodes[m.dataset.child];
-    if (!kid || kid.status !== "answered") return;
-    if (peekTimer) clearTimeout(peekTimer);
-    peekTimer = setTimeout(function(){ peekTimer = 0; showPeek(m); }, 220);
-  }
-  function onReaderMarkMouseout(e){
-    var m = e.target.closest && e.target.closest("mark[data-child]");
-    if (!m) return;
-    if (peekTimer){ clearTimeout(peekTimer); peekTimer = 0; }
-    setTimeout(function(){
-      if (!peekEl.matches(":hover") && !readerMain.querySelector("mark[data-child]:hover")) hidePeek();
-    }, 80);
-  }
+export function disposeBranchSurfaces(){
+  disposeBranchSurfaceResources(true);
+}
+
+function disposeBranchSurfaceResources(resetHooks){
+  if (pendingRemoval) commitPendingBranchRemoval();
+  if (undoNotice) undoNotice.hide();
+  closeShare({ restoreFocus: false });
+  branchLifecycle.dispose(resetHooks);
+  shareMenuController = null;
+  undoNotice = null;
+}
+
 
   // ===========================================================================
-  // SHARE — export, copy as Markdown, synthesize
+  // SHARE — export and copy as Markdown
   // ===========================================================================
-  var shareOpen = false, shareTrap = null;
-export function toggleShare(anchor){
-    if (shareOpen){ closeShare(); return; }
-    // A frozen snapshot can't export (it IS the export) or reach an agent.
-    var noAgent = frozen || closed;
+function toggleShare(anchor, openedByKeyboard){
+    // A frozen snapshot can't export because it is the export.
     document.getElementById("sm-export").style.display = frozen ? "none" : "";
-    document.getElementById("sm-portable").style.display = (!frozen && typeof branchHooks.exportPortable === "function") ? "" : "none";
-    document.getElementById("sm-sep2").style.display = noAgent ? "none" : "";
-    document.getElementById("sm-synth").style.display = noAgent ? "none" : "";
-    var r = anchor.getBoundingClientRect();
-    shareMenu.style.left = Math.min(window.innerWidth - shareMenu.offsetWidth - 10, Math.max(10, r.right - shareMenu.offsetWidth)) + "px";
-    shareMenu.style.top = (r.bottom + 8) + "px";
-    shareOpen = true;
-    shareMenu.classList.add("visible");
-    setSurfaceOrigin(shareMenu, r);
-    if (shareTrap) shareTrap();
-    shareTrap = activateFocusTrap(shareMenu, {
-      initialFocus: shareMenu.querySelector("button"),
-      onEscape: closeShare
-    });
+    document.getElementById("sm-portable").style.display = (!frozen && typeof branchLifecycle.hooks.exportPortable === "function") ? "" : "none";
+    shareMenuController.toggle(anchor, { focusFirst: openedByKeyboard });
   }
-export function closeShare(){
-    shareOpen = false;
-    shareMenu.classList.remove("visible");
-    if (shareTrap){ shareTrap(); shareTrap = null; }
+export function closeShare(settings){
+    if (shareMenuController) shareMenuController.close(settings);
   }
 
   function copyText(text, okMsg){
     function done(){ flashHint(okMsg); }
-    function legacy(){
+    function copyWithTextarea(){
+      var previousFocus = document.activeElement;
       var ta = document.createElement("textarea");
       ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
       document.body.appendChild(ta); ta.select();
       try { document.execCommand("copy"); } catch(err){}
       document.body.removeChild(ta);
+      if (previousFocus && previousFocus.isConnected){
+        try { previousFocus.focus(); } catch(err){}
+      }
     }
     if (navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(text).then(done, function(){ legacy(); done(); });
-    } else { legacy(); done(); }
+      navigator.clipboard.writeText(text).then(done, function(){ copyWithTextarea(); done(); });
+    } else { copyWithTextarea(); done(); }
   }
   // Markdown reconstructions — the raw source rides in hydration/broadcasts.
   function originLine(n){
     if (!n.origin) return "";
-    if (n.origin.synthesis) return "> ✦ Synthesis of the whole Rabbithole\n\n";
     var ask = n.origin.lens ? lensLabel(n.origin.lens) : (n.origin.question || "");
     if (n.origin.selected_text) return "> Asked about: “" + n.origin.selected_text + "”" + (ask ? " — " + ask : "") + "\n\n";
     return ask ? "> Follow-up — " + ask + "\n\n" : "";
@@ -185,27 +131,33 @@ export function closeShare(){
     return h + " " + (n.title || "Untitled") + "\n\n" + originLine(n) + body + "\n";
   }
   function trailMarkdown(id){
-    var path = lineageNodes(id), parts = [];
+    var path = lineageNodesFromMap(nodes, id), parts = [];
     for (var i = 0; i < path.length; i++) parts.push(docMarkdown(path[i], i));
     return parts.join("\n---\n\n");
   }
   function onCopyDoc(){
     closeShare();
-    var n = nodes[currentNodeId];
+    copyNodeMarkdown(nodes[currentNodeId]);
+  }
+export function copyNodeMarkdown(n){
     if (!n) return;
     copyText(docMarkdown(n, 0), "Copied “" + truncate(n.title || "Untitled", 40) + "” as Markdown");
   }
   function onCopyTrail(){
     closeShare();
-    var path = lineageNodes(currentNodeId);
+    var path = lineageNodesFromMap(nodes, currentNodeId);
     copyText(trailMarkdown(currentNodeId), path.length === 1
       ? "Copied this document as Markdown"
       : "Copied the trail — " + path.length + " documents");
   }
 	  function onExportSnapshot(){
 	    closeShare();
+	    if (typeof branchLifecycle.hooks.exportSnapshot !== "function"){
+	      flashHint("This snapshot is already portable.");
+	      return;
+	    }
 	    flashHint("Preparing snapshot...");
-	    downloadSnapshot().then(function(){
+	    Promise.resolve(branchLifecycle.hooks.exportSnapshot()).then(function(){
 	      flashHint("Snapshot downloading — a single file that opens anywhere.");
 	    }, function(){
 	      flashHint("Couldn't prepare the snapshot.");
@@ -213,13 +165,13 @@ export function closeShare(){
 	  }
   function onExportPortable(){
     closeShare();
-    if (typeof branchHooks.exportPortable !== "function"){
+    if (typeof branchLifecycle.hooks.exportPortable !== "function"){
       flashHint("Rabbithole export is only available in the web app.");
       return;
     }
     flashHint("Preparing Rabbithole export...");
     Promise.resolve()
-      .then(function(){ return branchHooks.exportPortable(); })
+      .then(function(){ return branchLifecycle.hooks.exportPortable(); })
       .then(function(result){
         var name = result && result.filename ? " " + result.filename : "";
         flashHint("Rabbithole export downloading." + name);
@@ -227,84 +179,114 @@ export function closeShare(){
         flashHint("Couldn't prepare the Rabbithole export.");
       });
   }
-export function synthesize(source){
-    if (closed){ flashHint("Session ended — reopen this Rabbithole from your terminal first."); return; }
-    var root = nodes[rootId];
-    if (!root) return;
-    for (var k in nodes){
-      var n = nodes[k];
-      if (n.status === "pending" && n.origin && n.origin.synthesis){
-        flashHint("A synthesis is already being written…");
-        goToNode(n, source);
-        return;
-      }
+  // ===========================================================================
+  // DELETE — remove a branch now; keep one exact local undo until the toast expires.
+  // ===========================================================================
+export function removeBranch(node){
+    if (!node || node.id === rootId) return;
+    if (node._ephemeral){
+      removeNodesLocal([node.id], node.parent_id);
+      return;
     }
-    var q = "Step back and write the synthesis of this whole Rabbithole so far: the key ideas we explored, how they connect, and the takeaways worth keeping. Make it a standalone summary of the journey.";
-    var kid = sendFollowup(root, q, null, true);
-    if (mode === "canvas") revealNode(kid, source);
-    flashHint("✦ Synthesizing this journey — it will appear as a branch of the root document.");
-  }
-
-  // ===========================================================================
-  // DELETE — remove a branch (and its subtree) after an inline confirm
-  // ===========================================================================
-  var confirmFor = null;
-export function confirmDelete(node, anchor){
     if (closed){
       flashHint(frozen ? "This is a read-only snapshot." : "Session ended — changes can't be saved anymore.");
       return;
     }
-    confirmFor = node.id;
-    var subCount = countSubtree(node.id) - 1;
-    document.getElementById("cf-msg").textContent = subCount > 0
-      ? "Remove this branch and " + subCount + " inside it?"
-      : "Remove this branch?";
-    var r = anchor.getBoundingClientRect();
-    confirmEl.style.left = Math.min(window.innerWidth - confirmEl.offsetWidth - 10, Math.max(10, r.right - confirmEl.offsetWidth)) + "px";
-    confirmEl.style.top = (r.bottom + 8) + "px";
-    confirmEl.classList.add("visible");
-    setSurfaceOrigin(confirmEl, r);
+    if (pendingRemoval) commitPendingBranchRemoval();
+    var ids = collectSubtree(node.id, []);
+    var previousCurrentId = currentNodeId;
+    pendingRemoval = { rootId: node.id, parentId: node.parent_id, ids: ids, previousCurrentId: previousCurrentId };
+    for (var i = 0; i < ids.length; i++){
+      var staged = nodes[ids[i]];
+      if (staged) staged._pendingDelete = true;
+    }
+    for (var j = 0; j < ids.length; j++){
+      var stagedNode = nodes[ids[j]];
+      if (!stagedNode) continue;
+      clearEdgeHighlight(stagedNode.id);
+      removeMarks(readerMain, stagedNode.id);
+      var parent = nodes[stagedNode.parent_id];
+      if (parent && parent.bodyEl) removeMarks(parent.bodyEl, stagedNode.id);
+      detachNode(stagedNode);
+    }
+    var currentGone = ids.indexOf(currentNodeId) !== -1;
+    if (currentGone) setCurrentNodeId((node.parent_id && nodes[node.parent_id]) ? node.parent_id : rootId);
+    refreshAfterRemoval(node.parent_id, currentGone);
+    undoNotice.show({ message: "Branch removed", actionLabel: "Undo", onAction: undoPendingRemoval,
+      onExpire: commitPendingBranchRemoval, duration: 6000 });
   }
-export function hideConfirm(){ confirmFor = null; confirmEl.classList.remove("visible"); }
-  function countSubtree(id){
-    var c = 1;
-    childrenOf(id).forEach(function(k){ c += countSubtree(k.id); });
-    return c;
+  function onUndoKeydown(e){
+    if (!pendingRemoval || !undoNotice?.isVisible() || !(e.metaKey || e.ctrlKey) || e.shiftKey || String(e.key).toLowerCase() !== "z") return;
+    e.preventDefault();
+    undoPendingRemoval();
+    undoNotice.hide();
   }
   function collectSubtree(id, out){
     out.push(id);
     childrenOf(id).forEach(function(k){ collectSubtree(k.id, out); });
     return out;
   }
-  function deleteBranch(node){
-    var title = node.title || "Untitled";
-    var ids = collectSubtree(node.id, []);
-    branchHooks.post({ type: "delete_node", node_id: node.id });
-    removeNodesLocal(ids, node.parent_id);
-    flashHint(ids.length > 1
-      ? "Removed “" + truncate(title, 40) + "” and " + (ids.length - 1) + " inside it"
-      : "Removed “" + truncate(title, 40) + "”");
+  function undoPendingRemoval(){
+    var removal = pendingRemoval;
+    if (!removal) return;
+    pendingRemoval = null;
+    for (var i = 0; i < removal.ids.length; i++){
+      var node = nodes[removal.ids[i]];
+      if (node) delete node._pendingDelete;
+    }
+    if (nodes[removal.previousCurrentId]) setCurrentNodeId(removal.previousCurrentId);
+    if (canvasBuilt){
+      for (var j = 0; j < removal.ids.length; j++){
+        var restored = nodes[removal.ids[j]];
+        // A docked note comes back onto its parent's margin, never as a card.
+        if (restored && !restored.el && !isDockedNote(restored)) createNodeEl(restored, true);
+      }
+    }
+    refreshAfterRemoval(removal.parentId, false);
+    if (mode === "reader" && nodes[removal.previousCurrentId]) openNode(removal.previousCurrentId);
+  }
+export function commitPendingBranchRemoval(){
+    var removal = pendingRemoval;
+    if (!removal) return Promise.resolve({ ok: true });
+    pendingRemoval = null;
+    if (undoNotice) undoNotice.hide();
+    var request = postBrowserEvent({ type: "delete_node", node_id: removal.rootId });
+    removeNodesLocal(removal.ids, removal.parentId);
+    return Promise.resolve(request);
+  }
+  function refreshAfterRemoval(parentId, currentGone){
+    var parent = parentId && nodes[parentId];
+    if (parent && parent.bodyEl){
+      var scrollTop = parent.bodyEl.scrollTop;
+      fillBody(parent);
+      parent.bodyEl.scrollTop = scrollTop;
+    }
+    if (canvasBuilt){ renderVisibility(); drawEdges(); }
+    if (mode === "reader"){
+      if (currentGone) openNode(currentNodeId);
+      else {
+        if (currentNodeId === parentId) renderReaderBody();
+        renderBreadcrumb(); renderMarginNotes();
+      }
+    }
   }
 export function removeNodesLocal(ids, parentId){
+    if (pendingRemoval && ids.indexOf(pendingRemoval.rootId) !== -1){
+      pendingRemoval = null;
+      if (undoNotice) undoNotice.hide();
+    }
     var currentGone = false;
     for (var i = 0; i < ids.length; i++){
       var id = ids[i], n = nodes[id];
       if (!n) continue;
       if (currentNodeId === id) currentGone = true;
-      if (n.el && n.el.parentNode) n.el.parentNode.removeChild(n.el);
-      removeMarks(readerMain, id);
-      removeThreadItem(id);
-      var p = nodes[n.parent_id];
-      if (p && p.bodyEl) removeMarks(p.bodyEl, id);
       clearEdgeHighlight(id);
-      delete nodes[id];
+      teardownNode(id);
     }
     if (currentGone){
       setCurrentNodeId((parentId && nodes[parentId]) ? parentId : rootId);
       if (mode === "reader") openNode(currentNodeId);
     }
     if (canvasBuilt){ renderVisibility(); drawEdges(); }
-    if (mode === "reader"){ renderBreadcrumb(); renderSidebar(); }
-    refreshAmbient();
-    updateSince();
+    if (mode === "reader"){ renderBreadcrumb(); renderMarginNotes(); }
   }

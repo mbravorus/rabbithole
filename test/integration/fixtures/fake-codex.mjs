@@ -1,0 +1,170 @@
+#!/usr/bin/env node
+import fs from "node:fs";
+
+const args = process.argv.slice(2);
+if (process.env.FAKE_CODEX_APP_SERVER_ARGS) {
+  fs.appendFileSync(process.env.FAKE_CODEX_APP_SERVER_ARGS, `${JSON.stringify({
+    args,
+    codexHome: process.env.CODEX_HOME,
+  })}\n`);
+}
+if (args[0] !== "app-server") process.exit(2);
+
+let threadCounter = 0;
+let turnCounter = 0;
+let active = 0;
+let maxActive = 0;
+const turns = new Map();
+
+function emit(value) {
+  process.stdout.write(`${JSON.stringify(value)}\n`);
+}
+
+function recordConcurrency() {
+  if (process.env.FAKE_CODEX_CONCURRENCY) {
+    fs.writeFileSync(process.env.FAKE_CODEX_CONCURRENCY, `${maxActive}\n`);
+  }
+}
+
+function complete(threadId, turnId) {
+  if (!turns.has(turnId)) return;
+  turns.delete(turnId);
+  active -= 1;
+  emit({
+    method: "item/agentMessage/delta",
+    params: { threadId, turnId, delta: "O" },
+  });
+  emit({
+    method: "item/agentMessage/delta",
+    params: { threadId, turnId, delta: "K" },
+  });
+  emit({
+    method: "item/completed",
+    params: {
+      threadId,
+      turnId,
+      item: { type: "agentMessage", text: "OK" },
+    },
+  });
+  emit({
+    method: "thread/tokenUsage/updated",
+    params: {
+      threadId,
+      turnId,
+      tokenUsage: { last: { inputTokens: 9, outputTokens: 2, totalTokens: 11 } },
+    },
+  });
+  emit({
+    method: "turn/completed",
+    params: {
+      threadId,
+      turn: { id: turnId, status: "completed", error: null },
+    },
+  });
+}
+
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+  const lines = input.split(/\r?\n/);
+  input = lines.pop() || "";
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const { id, method, params = {} } = JSON.parse(line);
+    if (method === "initialize") {
+      emit({ id, result: { userAgent: "codex-cli 0.144.0-fake" } });
+    } else if (method === "initialized") {
+      // notification
+    } else if (method === "account/read") {
+      emit({
+        id,
+        result: process.env.FAKE_CODEX_SIGNED_OUT === "1"
+          ? { account: null }
+          : { account: { type: "chatgpt" }, planType: "pro" },
+      });
+    } else if (method === "collaborationMode/list") {
+      emit({
+        id,
+        result: {
+          data: [
+            { mode: "plan", settings: {} },
+            { mode: "default", settings: {} },
+          ],
+        },
+      });
+    } else if (method === "model/list") {
+      emit({
+        id,
+        result: params.cursor
+          ? {
+            data: [{
+              model: "gpt-second",
+              displayName: "GPT Second",
+              hidden: false,
+              defaultReasoningEffort: "medium",
+              supportedReasoningEfforts: [{ reasoningEffort: "medium" }],
+              inputModalities: ["text"],
+            }],
+            nextCursor: null,
+          }
+          : {
+            data: [{
+              model: "gpt-fake",
+              displayName: "GPT Fake",
+              hidden: false,
+              defaultReasoningEffort: "low",
+              supportedReasoningEfforts: [
+                { reasoningEffort: "low" },
+                { reasoningEffort: "medium" },
+                { reasoningEffort: "xhigh" },
+              ],
+              inputModalities: ["text", "image"],
+            }],
+            nextCursor: "page-2",
+          },
+      });
+    } else if (method === "thread/start") {
+      const threadId = `thread-${++threadCounter}`;
+      emit({ id, result: { thread: { id: threadId, ephemeral: true } } });
+    } else if (method === "turn/start") {
+      const turnId = `turn-${++turnCounter}`;
+      if (process.env.FAKE_CODEX_RECORD) {
+        fs.appendFileSync(process.env.FAKE_CODEX_RECORD, `${JSON.stringify(params)}\n`);
+      }
+      emit({ id, result: { turn: { id: turnId, status: "inProgress" } } });
+      emit({
+        method: "turn/started",
+        params: {
+          threadId: params.threadId,
+          turn: { id: turnId, status: "inProgress" },
+        },
+      });
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      recordConcurrency();
+      const text = params.input?.map((part) => part.text || "").join("\n") || "";
+      const timer = text.includes("SLOW")
+        ? null
+        : setTimeout(() => complete(params.threadId, turnId), 20);
+      turns.set(turnId, { threadId: params.threadId, timer });
+    } else if (method === "turn/interrupt") {
+      const turn = turns.get(params.turnId);
+      if (turn) {
+        if (turn.timer) clearTimeout(turn.timer);
+        turns.delete(params.turnId);
+        active -= 1;
+      }
+      emit({ id, result: {} });
+      emit({
+        method: "turn/completed",
+        params: {
+          threadId: params.threadId,
+          turn: { id: params.turnId, status: "interrupted", error: null },
+        },
+      });
+    }
+  }
+});
+
+process.on("SIGTERM", () => process.exit(0));

@@ -11,7 +11,8 @@
  * This is a plain CLI (not an MCP server), so stdout is ours to print to.
  */
 
-import { listRabbitholes, exportHoleToVault, readExportConfig, updateExportConfig } from "../src/node/index.js";
+import { listRabbitholes } from "../src/node/rabbithole.js";
+import { exportHoleToVault, readExportConfig, updateExportConfig } from "../src/node/vault-export.js";
 
 function usage() {
   process.stdout.write(

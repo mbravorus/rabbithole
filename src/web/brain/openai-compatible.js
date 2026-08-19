@@ -1,65 +1,99 @@
-import { buildAnswerMessages, buildAuthorMessages, buildExplainerMessages } from "../../core/prompts/index.js";
+import { buildAnswerMessages } from "../../core/prompts/answering-v1.js";
+import { buildAuthorMessages } from "../../core/prompts/authoring-v1.js";
+import { buildExplainerMessages } from "../../core/prompts/explainer-v1.js";
+import { buildTranscribeMessages } from "../../core/prompts/transcribe-v1.js";
 import { ProviderError, normalizeProviderError } from "./errors.js";
+import { addressSpaceHint } from "./model-endpoint.js";
+import { adaptBranchGeneration, adaptTextGeneration } from "./generation-events.js";
+import { providerFor } from "./provider-registry.js";
+
+export function createBrain(settings, apiKey) {
+  const preset = providerFor(settings?.preset);
+  const model = settings?.model || preset.model;
+  return new OpenAICompatibleBrain({
+    baseUrl: settings?.base_url || preset.base_url,
+    apiKey,
+    model,
+    transcribeModel: settings?.transcribe_model || preset.transcribe_model || model,
+    reasoningEffort: settings?.reasoning || "",
+  });
+}
 
 export class OpenAICompatibleBrain {
-  constructor({ baseUrl, apiKey, authorModel, answerModel, extraHeaders = {}, title = "Rabbithole" } = {}) {
+  constructor({ baseUrl, apiKey, model, transcribeModel, reasoningEffort = "", extraHeaders = {}, title = "Rabbithole" } = {}) {
     this.baseUrl = normalizeBaseUrl(baseUrl);
     this.apiKey = apiKey || "";
-    this.authorModel = authorModel || answerModel || "anthropic/claude-sonnet-5";
-    this.answerModel = answerModel || this.authorModel;
+    this.model = model || "anthropic/claude-sonnet-5";
+    this.transcribeModel = transcribeModel || this.model;
+    this.reasoningEffort = reasoningEffort || "";
     this.extraHeaders = extraHeaders || {};
     this.title = title;
   }
 
+  tuning() {
+    return this.reasoningEffort ? { reasoning_effort: this.reasoningEffort } : {};
+  }
+
   async *authorDocument(source, signal) {
     const body = {
-      model: this.authorModel,
+      model: this.model,
       messages: buildAuthorMessages(source),
       stream: true,
       temperature: 0.2,
+      ...this.tuning(),
     };
-    yield* streamOpenAICompatible({
+    yield* adaptTextGeneration(streamOpenAICompatible({
       url: chatCompletionsUrl(this.baseUrl),
       apiKey: this.apiKey,
       body,
       signal,
       extraHeaders: this.extraHeaders,
       title: this.title,
-    });
+    }));
   }
 
   async *authorExplainer({ question } = {}, signal) {
     const body = {
-      model: this.authorModel,
+      model: this.model,
       messages: buildExplainerMessages({ question }),
       stream: true,
       temperature: 0.35,
+      ...this.tuning(),
     };
-    yield* streamOpenAICompatible({
+    yield* adaptTextGeneration(streamOpenAICompatible({
       url: chatCompletionsUrl(this.baseUrl),
       apiKey: this.apiKey,
       body,
       signal,
       extraHeaders: this.extraHeaders,
       title: this.title,
-    });
+    }));
   }
 
   async *answerBranch(context, signal) {
     const body = {
-      model: this.answerModel,
+      model: this.model,
       messages: buildAnswerMessages(context),
       stream: true,
       temperature: 0.4,
+      ...this.tuning(),
     };
-    yield* streamOpenAICompatible({
+    yield* adaptBranchGeneration(streamOpenAICompatible({
       url: chatCompletionsUrl(this.baseUrl),
       apiKey: this.apiKey,
       body,
       signal,
       extraHeaders: this.extraHeaders,
       title: this.title,
-    });
+    }), { fallbackTitle: context?.fallbackTitle });
+  }
+
+  async *transcribePages(input, signal) {
+    yield* adaptTextGeneration(streamOpenAICompatible({
+      url: chatCompletionsUrl(this.baseUrl), apiKey: this.apiKey,
+      body: { model: this.transcribeModel, messages: buildTranscribeMessages(input), stream: true, temperature: 0.1, ...this.tuning() },
+      signal, extraHeaders: this.extraHeaders, title: this.title,
+    }));
   }
 }
 
@@ -76,7 +110,9 @@ export async function* streamOpenAICompatible({ url, apiKey, body, signal, extra
       headers["HTTP-Referer"] = globalThis.location?.origin || "https://rabbithole.ing";
       headers["X-Title"] = title;
     }
-    response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal });
+    // Discovery reached this endpoint the same way; generation has to declare the same
+    // address space or the model list would load and every answer would fail.
+    response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal, ...addressSpaceHint(url) });
   } catch (err) {
     throw normalizeProviderError(err);
   }
@@ -109,7 +145,7 @@ export async function* streamOpenAICompatible({ url, apiKey, body, signal, extra
   }
 }
 
-function parseOpenAISseEvent(eventText) {
+export function parseOpenAISseEvent(eventText) {
   const lines = String(eventText || "").split(/\r?\n/);
   let out = "";
   for (const line of lines) {
@@ -126,12 +162,14 @@ function parseOpenAISseEvent(eventText) {
 
 async function responseError(response) {
   let detail = "";
+  let providerCode = "";
   try {
     const text = await response.text();
     if (text) {
       try {
         const json = JSON.parse(text);
         detail = json.error?.message || json.message || "";
+        providerCode = json.error?.code || json.code || "";
       } catch {
         detail = text.slice(0, 180);
       }
@@ -141,9 +179,18 @@ async function responseError(response) {
   const prefix = status === 401 ? "Bad or missing API key"
     : status === 429 ? "Rate limited by the provider"
       : `Provider returned HTTP ${status}`;
-  return new ProviderError(detail ? `${prefix}: ${detail}` : prefix, {
+  const bridgeFailure = [
+    "unauthorized",
+    "agent_signed_out",
+    "agent_missing",
+    "model_unknown",
+    "model_no_images",
+    "payload_too_large",
+    "turn_failed",
+  ].includes(providerCode);
+  return new ProviderError(bridgeFailure && detail ? detail : detail ? `${prefix}: ${detail}` : prefix, {
     status,
-    code: String(status),
+    code: providerCode || String(status),
     retryable: status !== 401 && status !== 403,
   });
 }

@@ -1,5 +1,5 @@
 import { resolveMarkdownUrl } from "./base-url.js";
-import { extractAssetRefsFromMarkdown } from "./assets.js";
+import { extractNodeAssetRefs } from "./assets.js";
 
 /**
  * Project a persisted hole onto an Obsidian vault: a JSON Canvas of file nodes
@@ -179,7 +179,7 @@ export function holeToVaultPlan(hole, { folder = DEFAULT_VAULT_FOLDER, slug = nu
         rewriteMarkdownForVault(node.markdown, { baseUrl: node.base_url, assetNames }) +
         "\n";
       notes.push({ nodeId: node.id, path: notePath, content });
-      for (const name of extractAssetRefsFromMarkdown(node.markdown)) referencedAssets.add(name);
+      for (const name of extractNodeAssetRefs(node)) referencedAssets.add(name);
 
       const size = nodeSize(node, DOC_NODE_WIDTH, DOC_NODE_HEIGHT);
       const canvasNode = {

@@ -3,10 +3,9 @@ import { z } from "zod";
 function applyCommon(schema, def) {
   let next = schema;
   if (def.description) next = next.describe(def.description);
-  if (def.minItems != null && "min" in next) next = next.min(def.minItems);
   if (def.maxItems != null && "max" in next) next = next.max(def.maxItems);
+  if (def.maxLength != null && "max" in next) next = next.max(def.maxLength);
   if (def.optional) next = next.optional();
-  if (def.default !== undefined) next = next.default(def.default);
   return next;
 }
 
@@ -16,8 +15,6 @@ function buildZodSchema(def) {
       return applyCommon(z.string(), def);
     case "boolean":
       return applyCommon(z.boolean(), def);
-    case "enum":
-      return applyCommon(z.enum(def.values), def);
     case "array":
       return applyCommon(z.array(buildZodSchema(def.items)), def);
     case "object": {

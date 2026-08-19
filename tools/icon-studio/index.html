@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Rabbithole Icon Studio</title>
+  <meta name="description" content="Explore and select Ionicons for every Rabbithole interface role.">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div id="loading" class="loading-screen">
+    <div class="loading-mark">R</div>
+    <p>Preparing all 2,336 Ionicons…</p>
+  </div>
+
+  <div id="app" class="app" hidden>
+    <header class="topbar">
+      <div class="identity">
+        <div class="wordmark">R</div>
+        <div>
+          <h1>Icon Studio</h1>
+          <p>Ionicons 5.5.4 · Rabbithole</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span id="save-state" class="save-state">All changes saved locally</span>
+        <button id="reset-button" class="button ghost" type="button">Reset draft</button>
+        <button id="export-button" class="button ghost" type="button">Export</button>
+        <button id="apply-button" class="button primary" type="button">Apply to Rabbithole</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="role-panel" aria-label="Product icon roles">
+        <div class="progress-card">
+          <div class="progress-copy">
+            <span class="eyebrow">Selection set</span>
+            <strong id="progress-label">31 roles</strong>
+            <small id="change-count">No unpublished changes</small>
+          </div>
+          <div id="progress-ring" class="progress-ring" aria-hidden="true"><span>31</span></div>
+        </div>
+        <div class="role-filter-wrap">
+          <input id="role-filter" type="search" placeholder="Filter product roles" autocomplete="off">
+        </div>
+        <nav id="role-list" class="role-list"></nav>
+      </aside>
+
+      <main class="main">
+        <section class="role-stage" aria-labelledby="role-title">
+          <div class="role-heading">
+            <div>
+              <span id="role-group" class="eyebrow"></span>
+              <h2 id="role-title"></h2>
+              <p id="role-description"></p>
+            </div>
+            <div class="role-nav">
+              <button id="previous-role" class="icon-button" type="button" aria-label="Previous role">←</button>
+              <span id="role-position"></span>
+              <button id="next-role" class="icon-button" type="button" aria-label="Next role">→</button>
+            </div>
+          </div>
+
+          <div class="preview-grid">
+            <article class="preview-card">
+              <div class="preview-label">Toolbar · light</div>
+              <div class="toolbar-preview light-preview">
+                <span class="rabbit-dot">R</span><i></i>
+                <button id="preview-light" type="button" aria-label="Selected icon preview"></button>
+                <span class="toolbar-neighbor" data-icon="create-outline"></span><i></i>
+                <span class="toolbar-neighbor" data-icon="remove-outline"></span>
+                <span class="zoom-copy">100%</span>
+                <span class="toolbar-neighbor" data-icon="add-outline"></span>
+              </div>
+            </article>
+            <article class="preview-card dark-card">
+              <div class="preview-label">Toolbar · dark</div>
+              <div class="toolbar-preview dark-preview">
+                <span class="rabbit-dot">R</span><i></i>
+                <button id="preview-dark" type="button" aria-label="Selected icon preview"></button>
+                <span class="toolbar-neighbor" data-icon="create-outline"></span><i></i>
+                <span class="toolbar-neighbor" data-icon="remove-outline"></span>
+                <span class="zoom-copy">100%</span>
+                <span class="toolbar-neighbor" data-icon="add-outline"></span>
+              </div>
+            </article>
+            <article class="preview-card detail-card">
+              <div class="preview-label">Detail</div>
+              <div class="detail-preview">
+                <span id="preview-detail"></span>
+                <div>
+                  <strong id="selected-icon-name"></strong>
+                  <small>Rendered at 18px · normalized 48 stroke</small>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="explorer">
+          <div class="explorer-head">
+            <div class="search-field">
+              <span aria-hidden="true">⌕</span>
+              <input id="icon-search" type="search" placeholder="Search all icons — try “book”, “branch”, or “sparkles”" autocomplete="off">
+              <kbd>/</kbd>
+            </div>
+            <div class="segmented" role="group" aria-label="Icon style">
+              <button type="button" data-style="all" class="active">All</button>
+              <button type="button" data-style="outline">Outline</button>
+              <button type="button" data-style="filled">Filled</button>
+              <button type="button" data-style="sharp">Sharp</button>
+            </div>
+            <button id="shortlist-toggle" class="button ghost shortlist-toggle" type="button">Shortlist <span id="shortlist-count">0</span></button>
+          </div>
+
+          <div id="shortlist-panel" class="shortlist-panel" hidden>
+            <div>
+              <strong>Shortlist</strong>
+              <span>Star candidates to compare them here.</span>
+            </div>
+            <div id="shortlist-items" class="shortlist-items"></div>
+          </div>
+
+          <div class="results-meta">
+            <div>
+              <strong id="result-title">Recommended</strong>
+              <span id="result-count"></span>
+            </div>
+            <label class="sort-control">Sort
+              <select id="sort-select">
+                <option value="recommended">Recommended first</option>
+                <option value="az">Name A–Z</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="icon-grid" class="icon-grid" aria-live="polite"></div>
+          <button id="load-more" class="load-more" type="button" hidden>Show more icons</button>
+          <div id="empty-state" class="empty-state" hidden>
+            <strong>No icons found</strong>
+            <p>Try a shorter name or switch back to all styles.</p>
+            <button id="clear-search" class="button ghost" type="button">Clear filters</button>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="apply-dialog" class="dialog">
+    <form method="dialog">
+      <div class="dialog-mark">✓</div>
+      <h2>Apply this icon set?</h2>
+      <p id="apply-summary"></p>
+      <div id="apply-changes" class="apply-changes"></div>
+      <p class="dialog-note">The studio will update the shared mapping and rebuild the local browser bundles. If the build fails, it restores the previous set.</p>
+      <div class="dialog-actions">
+        <button class="button ghost" value="cancel">Keep reviewing</button>
+        <button id="confirm-apply" class="button primary" value="default">Apply & rebuild</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+</body>
+</html>

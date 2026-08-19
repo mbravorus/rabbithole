@@ -1,14 +1,31 @@
 import { RabbitHoleSession } from "./transport/session.js";
+import { getAgentContextMonitor } from "./context/monitor.js";
 
 const sessions = new Map();
 
 export async function createSession(config) {
+  let unsubscribeContext = () => {};
   const session = new RabbitHoleSession({
     ...config,
+    onContextClose: () => unsubscribeContext(),
     onClose: (s) => sessions.delete(s.id),
   });
   sessions.set(session.id, session);
-  await session.start();
+  // Headless mode is used by the hermetic suite and has no browser indicator
+  // to update. In normal MCP use, every live session observes one process-level
+  // monitor; the last unsubscribe stops its watcher and stat poll.
+  if (!process.env.RABBITHOLE_NO_BROWSER) {
+    unsubscribeContext = getAgentContextMonitor().subscribe(
+      (usage) => session.setContextUsage(usage),
+      { sessionId: session.id }
+    );
+  }
+  try { await session.start(); }
+  catch (error) {
+    unsubscribeContext();
+    sessions.delete(session.id);
+    throw error;
+  }
   return session;
 }
 
@@ -40,10 +57,11 @@ export function closeSessionsForHole(holeId, reason = "superseded") {
  */
 export async function closeAllSessions(reason = "agent_exited") {
   const live = [...sessions.values()];
+  const saves = [];
   for (const session of live) {
     try {
-      session.close(reason);
+      saves.push(session.close(reason));
     } catch {}
   }
-  await Promise.allSettled(live.map((s) => s.savingChain));
+  await Promise.allSettled(saves);
 }

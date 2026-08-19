@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { warn } from "./logger.js";
-import { defaultFsStore, listAssets, resolveAsset } from "./fs-store.js";
+import { defaultFsStore, resolveAsset } from "./fs-store.js";
 import { DEFAULT_VAULT_FOLDER, holeToVaultPlan, mergeCanvas, slugify } from "../core/canvas-export.js";
 
 /**
@@ -176,7 +176,7 @@ export async function exportHoleToVault({ holeId, vaultPath, folder, continuous,
 
   const state = await readSyncState();
   const slug = await pickSlug({ hole, state, vaultPath: resolvedVault, folder: resolvedFolder });
-  const assetNames = await listAssets(holeId);
+  const assetNames = await defaultFsStore.listAssets(holeId);
   const plan = holeToVaultPlan(hole, { folder: resolvedFolder, slug, assetNames, roles: resolvedRoles });
 
   const record = state.holes[hole.hole_id] || {};

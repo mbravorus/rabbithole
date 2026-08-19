@@ -1,30 +1,107 @@
 # Rabbithole
 
 **An infinite canvas for learning.** Open a document, select any text, ask a
-question — and the answer opens as a fully-rendered child document. Recurse as
-deep as you like. Every hole is saved and revisitable.
-
-Rabbithole has two ways in: a local MCP server for terminal agents, and a
-static browser app for humans who want to bring their own model key. In the MCP
-path, your agent (Claude Code, Codex, or any MCP client) does the answering and
-Rabbithole gives it a canvas in your browser. Everything in that path runs
-locally: no account, no API keys, nothing leaves your machine.
+question — and the answer opens as a fully-rendered child document. Follow
+whatever pulls at you, as deep as it goes. Every hole is saved and
+revisitable.
 
 🌐 **[rabbithole.ing](https://rabbithole.ing)**
 
+There are two ways in:
+
+- **The web app** — [rabbithole.ing](https://rabbithole.ing). Use the Claude
+  or ChatGPT plan you already pay for (`npx @shlokkhemani/rabbithole bridge`), bring an
+  OpenRouter key, run a local model, or point it at your own endpoint. Static
+  site, no account, no backend: your key stays in your browser, and so do your
+  documents.
+- **The MCP server** — for terminal agents. Claude Code, Codex, or any MCP
+  client does the answering; Rabbithole gives it a canvas in your browser.
+  The server, storage, and canvas all run on your machine — your documents
+  and questions go only to the agent you already use.
+
 ## Use it on the web
 
-Open **[rabbithole.ing](https://rabbithole.ing)** for the browser app:
-bring your own key, choose OpenRouter (recommended), Anthropic, OpenAI, or a
-local OpenAI-compatible endpoint, and start from pasted markdown, PDFs, URLs,
-or `.rabbithole` files. Provider keys stay in your browser and are sent only to
-the provider origin you configure. Holes persist in IndexedDB, so the app keeps
-working offline-ish after it loads, and `.rabbithole` export/import keeps your
-work portable.
+Open **[rabbithole.ing](https://rabbithole.ing)** and start from anywhere:
+drop in a PDF or Markdown file, paste a URL, import a `.rabbithole` or
+snapshot `.html` — or just ask a question and let the answer become your
+first document.
 
-Self-hosting is static: `web/dist` can be served by any host. The optional
-`workers/fetch-proxy` Cloudflare Worker enables URL ingestion for sources that
-block browser CORS.
+Four ways to run a model:
+
+- **Claude & ChatGPT plans** — already pay for Claude or ChatGPT? One command:
+
+  ```bash
+  npx @shlokkhemani/rabbithole bridge
+  ```
+
+  It prints a link; clicking it connects the page. Answers come from the
+  Claude Code or Codex CLI on your machine — your plan, your machine, no
+  extra key. (Needs `claude` or `codex` installed and signed in.)
+- **OpenRouter** — one key, every major model. The model picker pulls
+  OpenRouter's live catalog.
+- **Local** — Ollama on your machine, with setup help and installed-model
+  discovery. No key required.
+- **Custom** — any other OpenAI-compatible endpoint: LM Studio, llama.cpp,
+  vLLM, LiteLLM, or a hosted API. Paste the base URL, add a key if it needs
+  one, and Rabbithole lists the models it offers. The endpoint has to allow
+  browser requests from rabbithole.ing (CORS).
+
+Keys never leave the browser: they're stored locally (or session-only, your
+choice) and sent exclusively to the provider origin you configure. Exports
+scrub anything credential-shaped.
+
+#### Pointing a phone at a model on your network
+
+The model doesn't have to run on the device you're reading on. Serve Ollama
+from a machine on your network and point **Custom** at it:
+
+```bash
+OLLAMA_HOST=0.0.0.0 OLLAMA_ORIGINS=https://rabbithole.ing ollama serve
+```
+
+Then open [rabbithole.ing](https://rabbithole.ing) on the phone and set the
+endpoint to `http://<that-machine's-lan-ip>:11434/v1` — for example
+`http://192.168.0.198:11434/v1`. The browser asks once whether the page may
+reach other devices on your local network; allow it. `OLLAMA_HOST=0.0.0.0` is
+what makes Ollama listen beyond its own machine, and `OLLAMA_ORIGINS` is what
+lets the page talk to it.
+
+This needs a browser that implements Local Network Access — Chrome 142 or
+newer, on desktop and Android. Safari has no equivalent, so on iOS run the
+browser version from that same machine over plain http instead (below), which
+sidesteps the question entirely.
+
+### Run the browser version locally
+
+Requires Node 18+:
+
+```bash
+git clone https://github.com/shlokkhemani/rabbithole.git
+cd rabbithole
+npm install
+npm run build
+npx -y serve web/dist
+```
+
+Open **[http://localhost:3000](http://localhost:3000)** (or the URL printed by
+`serve`). `serve` also prints a network URL — open that one from a phone or
+tablet on the same network and both the page and your model are plain http, so
+nothing has to be allowed or tunneled. The local browser build has the same OpenRouter and
+OpenAI-compatible local-model options as [rabbithole.ing](https://rabbithole.ing),
+and its documents and provider settings stay in that browser's local storage.
+
+Holes persist in IndexedDB, and each document gets a memorable local URL such
+as `rabbithole.ing/curious-teacup-abcdef`. That path names a record in *your*
+browser's database — it is not a sharing link. To move a hole between
+machines, export the `.rabbithole` file; to share something readable,
+download a snapshot.
+
+Self-hosting is static: run `npm run build` and serve `web/dist` from any
+host. The optional `workers/fetch-proxy` Cloudflare Worker enables URL
+ingestion for sources that block browser CORS (set `RABBITHOLE_PROXY_URL` at
+build time to point the app at your relay). Serve `index.html` as the
+fallback for unknown single-segment paths so document URLs survive a direct
+visit or refresh.
 
 ## Quick start
 
@@ -36,29 +113,15 @@ Requires Node 18+ and a browser. Pick your agent:
 claude mcp add rabbithole -- npx -y github:shlokkhemani/rabbithole
 ```
 
-Claude Code's default stdio MCP timeout is already long enough for Rabbithole's
-blocking wait. If you manage `.mcp.json` manually, this optional per-server
-field is also fine:
-
-```json
-{
-  "mcpServers": {
-    "rabbithole": {
-      "command": "npx",
-      "args": ["-y", "github:shlokkhemani/rabbithole"],
-      "timeout": 3600000
-    }
-  }
-}
-```
-
 **Codex**
 
 ```bash
 codex mcp add rabbithole -- npx -y github:shlokkhemani/rabbithole
 ```
 
-Then add the timeout field in `~/.codex/config.toml`:
+Then raise the tool timeout in `~/.codex/config.toml` — Codex's 60-second
+default is shorter than Rabbithole's blocking wait, and `codex mcp add`
+cannot set this field:
 
 ```toml
 [mcp_servers.rabbithole]
@@ -67,9 +130,7 @@ args = ["-y", "github:shlokkhemani/rabbithole"]
 tool_timeout_sec = 600
 ```
 
-`codex mcp add` cannot set `tool_timeout_sec`; edit the config file directly.
-
-**Any other MCP client** — add this to its MCP config:
+**Any other MCP client** — most accept this shape in their MCP config:
 
 ```json
 {
@@ -89,6 +150,9 @@ Then start a new agent session and say:
 A browser tab opens. Select any text on the page, ask a question (or tap a
 lens — Explain · ELI5 · Example · Go Deeper), and the answer streams in as a
 new document. Keep going.
+
+If a host ever reports a tool timeout, nothing is lost — questions are saved
+and re-queued the next time the agent listens.
 
 <details>
 <summary><strong>Prefer running from a local clone?</strong> (faster startup, easier hacking)</summary>
@@ -114,8 +178,8 @@ Follow these steps exactly:
    For Codex, also add `tool_timeout_sec = 600` under
    `[mcp_servers.rabbithole]` in `~/.codex/config.toml`; `codex mcp add` cannot
    set that field.
-3. **Verify**: after the client reconnects, four tools should be available —
-   `open_rabbithole`, `answer_branch`, `ingest_pdf`, `list_rabbitholes`. (In Claude Code,
+3. **Verify**: after the client reconnects, three tools should be available —
+   `open_rabbithole`, `answer_branch`, `list_rabbitholes`. (In Claude Code,
    `claude mcp list` should show `rabbithole` as connected. The server itself
    also responds to a standard MCP `initialize` with server name `rabbithole`.)
 4. **Tell your human what to do next**: they should start a session and say
@@ -124,55 +188,61 @@ Follow these steps exactly:
    the markdown came from a URL or repo; add `assets` for local images referenced
    as `asset:name.png`), which blocks until they select text and ask. Answer
    with `answer_branch` (stream chunks with `partial: true`, finish with a
-   titled final call) and keep looping until `status='session_closed'`. If a
-   long wait returns `status='keep_listening'`, immediately call
-   `open_rabbithole` with the returned `{ hole_id }` and do not re-send content.
+   titled final call) and keep looping until `status='session_closed'`. Leave
+   the blocked call running in the background: a passive canvas does not poll
+   the model. Re-attach once only if the host truly cancels or times it out.
 
 Notes for you: the tool call blocks by design (long-poll) — that is normal, not
-a hang. First `npx` run takes ~15–30s while it fetches the repo; later runs are
-cached. If the browser must not auto-open (headless), set
+a hang. The first `npx` run fetches this repo, so allow it time; later runs
+are cached. If the browser must not auto-open (headless), set
 `RABBITHOLE_NO_BROWSER=1` in the server's env.
 
 ## Tools
 
 | Tool | What it does |
 |------|--------------|
-| `open_rabbithole` | Open a doc (`{ title, content }` / `{ title, file_path }`, optional `base_url`, optional `assets`, optional `ingest_id`) or resume one (`{ hole_id }`). Opens the canvas in the browser and blocks until the human asks something. |
-| `answer_branch` | Answer a pending branch request → a child document. Stream with `partial: true` chunks, then finish with a normal call carrying the node title; use `base_url` for fetched markdown and `assets` for local images referenced as `asset:name.png`. |
-| `ingest_pdf` | Extract a local PDF into page PNGs (`page-001.png`...), opportunistic embedded rasters (`embed-p001-01.png`...), metadata, and per-page text. Author the markdown yourself, reference returned asset names with `asset:`, then pass `ingest_id` to `open_rabbithole`; or pass `hole_id` to ingest directly into an existing hole. |
+| `open_rabbithole` | Open a doc (`{ title, content }` / `{ title, file_path }`, optional `base_url`, optional `assets`) or resume one (`{ hole_id }`). Use `{ hole_id, focus: true }` only when the human explicitly asks to reopen/show an already-live canvas. A PDF `file_path` opens natively: rendered pages, selectable text, and box-select — no markdown authoring needed (`title` optional; PDF metadata or filename is used). Opens the canvas in the browser and blocks until the human asks something. |
+| `answer_branch` | Answer a pending branch request → a child document. Stream with `partial: true` chunks, then finish with a normal call carrying the node title; use `base_url` for fetched markdown and `assets` for local images referenced as `asset:name.png`. A `branch_request` from a PDF may include `region.image_path` — read that image before answering. Also streams "Convert to document" transcriptions when a `convert_request` arrives. |
 | `export_to_obsidian` | Export a saved hole into an Obsidian vault as a JSON Canvas plus one markdown note per document — vault-native, crosslinkable knowledge. Re-exporting syncs instead of clobbering; pass `continuous: true` to auto-export on every save. |
 | `list_rabbitholes` | List saved holes to resume by id. |
 
 The loop: `open_rabbithole` → `branch_request` → `answer_branch` → `branch_request` → … → `session_closed`.
-Long waits may return `keep_listening`; immediately call `open_rabbithole`
-again with the returned `hole_id`. If the host reports a tool timeout, do the
-same — questions are saved.
+Long waits remain blocked and consume no model turns. If the host truly cancels
+or times out a call, resume once with the same `hole_id` — questions are saved.
+An `already_listening` result means the existing background call still owns
+delivery; do not attach another listener.
 
-For research PDFs, use page renders as the dependable figure source and embedded
-rasters when they are cleaner. For arXiv links, prefer fetching the HTML version
-and opening that content with `base_url` instead of ingesting the PDF.
+For research PDFs, page renders are the dependable figure source. For arXiv
+links, prefer fetching the HTML version and opening that content with
+`base_url` instead of ingesting the PDF.
 
 ## What's inside
 
 - **Reader mode (default):** fullscreen reading, branches sidebar, breadcrumbs;
-  selections become inline marks (pending → ready); hover a ready mark for a
-  peek preview; child docs carry a FROM strip that jumps back to the exact origin.
+  selections become inline marks (pending → ready); clicking a mark jumps to
+  its answer; child docs carry a FROM strip that jumps back to the exact origin.
 - **Streamed answers:** words appear live with a breathing caret — in the
   reader, the thread, and the canvas card.
 - **Rich Markdown:** answers can use math, highlighted language code fences,
-  `show` diagrams, URL-based resolution for relative links/images, and local
-  image assets via `asset:name.png`; source stays as Markdown for copy/export,
+  standard `mermaid` diagrams, bespoke `show` visuals, URL-based resolution
+  for relative links/images, and local image assets via `asset:name.png`;
+  source stays as Markdown for copy/export,
   while frozen snapshots inline assets into the HTML.
+- **Interactive checks:** answer multiple-choice questions inline; progress
+  survives reloads and portable backups, while shared snapshots start clean.
 - **Lenses:** one-tap presets on the ask popup — Explain · ELI5 · Example ·
   Go Deeper (keys 1–4).
 - **Follow-up chat:** a composer under each document asks about the doc as a
   whole; answers render inline and are branchable like any other text.
 - **Canvas mode:** infinite pan/zoom, draggable/resizable cards, edges that
   attach to the exact selected text in the parent, collapse, auto-layout.
-- **Navigation:** `j`/`k` walk marks, `↵` opens, `⌫` jumps back up, `⌘K` searches
-  the whole hole.
-- **Share/export:** copy any trail or document as Markdown, download a frozen
-  single-file snapshot, or ask the agent for a synthesis of the whole journey.
+- **Navigation:** `j`/`k` walk marks, `↵` opens, `⌫` jumps back up, `⌘K`
+  searches the whole hole.
+- **Share/export:** copy any trail or document as Markdown; **Download
+  snapshot** produces a single self-contained `.html` — data, assets, and a
+  read-only client in one file anyone can open; **Export Rabbithole** (web
+  app) produces a `.rabbithole` backup for device transfer — MCP holes are
+  already plain JSON on disk.
 - **Durable asks:** questions asked while the agent is away are saved and
   re-queued on resume — the agent answers them first thing.
 - **Persistence:** holes auto-save as JSON under `~/.rabbithole/`; resuming
@@ -183,6 +253,22 @@ The MCP host stores each hole as a JSON file directly under `~/.rabbithole/`
 asset directory. The web `.rabbithole` file is the same persisted hole JSON
 wrapped as `{ format: "rabbithole", format_version: 1, hole, assets }`, with
 assets base64-encoded into the single JSON file for portability.
+
+### Mermaid diagrams
+
+Use an ordinary Mermaid code fence; Rabbithole renders it in live canvases, the
+hosted web app, and self-contained offline snapshots:
+
+```mermaid
+flowchart LR
+  Question --> Explore --> Understand
+```
+
+The bundled runtime supports flowchart, sequence, class, state, and
+entity-relationship diagrams. Mindmaps, architecture diagrams, and
+Mermaid-side KaTeX are not included; use a `show` visual or regular Rabbithole
+math for those cases. Mermaid runs in strict mode, its SVG is sanitized again
+before mounting, and invalid diagrams fall back to their original source.
 
 ## Export to Obsidian
 
@@ -218,19 +304,34 @@ later, so the vault quietly tracks your live rabbitholes.
 |---------|--------|
 | `RABBITHOLE_DIR` | Override the storage directory (default `~/.rabbithole/`). |
 | `RABBITHOLE_NO_BROWSER=1` | Don't auto-open the browser (headless/testing). |
+| `RABBITHOLE_DEV=1` | Development only: re-read UI sources and bundles per page load (see the UI dev loop below). |
+| `RABBITHOLE_PROXY_URL` | Build-time: URL of your fetch-proxy relay for the web app (empty string disables the default). |
 | `RABBITHOLE_VAULT` | Obsidian vault path for `rabbithole-export` / `export_to_obsidian` (overrides the remembered default). |
 | `RABBITHOLE_MAX_BLOCK_MS` | Max time for one blocking MCP wait before returning `keep_listening` (default `240000`). |
 
 ## Repo layout
 
 - `bin/mcp-server.js` — entry point (stdio MCP server)
-- `src/` — server, canvas UI (self-contained HTML), storage
-- `website/` — retired Next.js marketing site sources, kept for reference
+- `src/core/` — host-independent document engine, rendering, artifacts, and contracts
+- `src/ui/` — shared live/frozen browser runtime
+- `src/node/` — MCP host, filesystem storage, local HTTP/SSE, and PDF ingestion
+- `src/web/` — static BYOK browser host and IndexedDB storage
+- `build.mjs` — builds the committed MCP bundles and the static web app
+- `dist/` — committed browser bundles used by GitHub `npx` installs
+- `web/dist/` — generated static web app (untracked build output)
+- `scripts/` — reproducibility checks and publish assembly
+- `test/` — capability-oriented unit, contract, integration, end-to-end,
+  performance, and packaging suites
+- `workers/fetch-proxy/` — optional allowlisted URL-ingestion relay
+- `website/public/` — public deployment assets consumed by `build:publish`
 
 ## Development
 
-The browser runtime source lives in `src/ui/` and is bundled into committed
-artifacts under `dist/`. When editing the UI, run:
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the development workflow and
+[ARCHITECTURE.md](./ARCHITECTURE.md) for system boundaries. Compatibility,
+testing, and interface rules live under [`docs/`](./docs/). The browser runtime
+source lives in `src/ui/` and is bundled into committed artifacts under `dist/`.
+When editing the UI, run:
 
 ```bash
 npm run build
@@ -239,6 +340,38 @@ npm run check:dist
 
 Commit both the source changes and `dist/`. There is no `prepare` build step;
 GitHub `npx` installs use the committed artifacts.
+
+### UI dev loop
+
+Start the MCP server with `RABBITHOLE_DEV=1` in its environment. Then iterate
+without restarting it or losing the open session:
+
+1. Edit `src/ui/`, `src/core/html/`, or anything they import.
+2. `node build.mjs --outdir=dist` (rebuilds the MCP bundles only, skipping the
+   static web app).
+3. Reload the canvas tab.
+
+The page is served with `Cache-Control: no-store`, so the reload picks up the
+rebuilt bundles and the freshly re-read shell and stylesheet templates. The
+listening agent lives in the Node process, not the page, so a reload rejoins the
+same session. Without `RABBITHOLE_DEV`, every asset is read once at startup and
+UI changes require a restart.
+
+### Production deployment
+
+The [`Deploy Cloudflare Pages`](./.github/workflows/deploy-pages.yml) workflow
+runs the complete test suite and deploys `publish/` to the `rabbithole` Pages
+project on every push to `main`. It can also be rerun manually from GitHub
+Actions. Each Cloudflare deployment is tagged with the exact Git commit.
+
+The workflow requires:
+
+- repository variable `CLOUDFLARE_ACCOUNT_ID`;
+- repository secret `CLOUDFLARE_API_TOKEN`, scoped to **Account → Cloudflare
+  Pages → Edit**.
+
+Configure them with `gh variable set CLOUDFLARE_ACCOUNT_ID` and `gh secret set
+CLOUDFLARE_API_TOKEN`; both commands prompt without committing credentials.
 
 ## License
 
