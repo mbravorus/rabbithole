@@ -1,4 +1,14 @@
+// Two polling cadences: a responsive one while any backend is not yet
+// `ready` (installing, signing in, recovering from an error) and a slow one
+// once every backend is ready and stable. Polling only runs while at least
+// one listener (an open /bridge/events stream) is subscribed — an idle
+// bridge with no browser attached does not probe the CLIs at all. Each probe
+// of the Claude backend spawns a real `claude -p /model` call, i.e. an
+// actual API round trip, so an unthrottled interval here means the bridge
+// silently keeps invoking Claude on a fixed cadence for as long as it runs,
+// whether or not anyone is using it.
 const REFRESH_MS = 15_000;
+const READY_REFRESH_MS = 3 * 60 * 1000;
 const STATES = new Set(["starting", "missing", "signed_out", "ready", "error"]);
 
 function assertAgentState(agent) {
@@ -55,11 +65,12 @@ export function unavailableAgent(id, state, fix, detail) {
 }
 
 export class BridgeStateStore {
-  constructor({ version, backends, logger, refreshMs = REFRESH_MS }) {
+  constructor({ version, backends, logger, refreshMs = REFRESH_MS, readyRefreshMs = READY_REFRESH_MS }) {
     this.version = version;
     this.backends = backends;
     this.logger = logger;
     this.refreshMs = refreshMs;
+    this.readyRefreshMs = readyRefreshMs;
     this.listeners = new Set();
     this.timer = null;
     this.refreshPromise = null;
@@ -73,17 +84,38 @@ export class BridgeStateStore {
     };
   }
 
+  /** Slow way down once nothing is left to converge on. */
+  nextRefreshMs() {
+    const allReady = this.value.agents.every((agent) => agent.state === "ready");
+    return allReady ? this.readyRefreshMs : this.refreshMs;
+  }
+
   subscribe(listener) {
+    const wasIdle = this.listeners.size === 0;
     this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    // A bridge nobody is watching does not need fresh state; resume polling
+    // (with an immediate refresh, not a stale wait for the next tick) only
+    // once someone actually subscribes.
+    if (wasIdle && !this.refreshPromise) void this.refresh();
+    return () => {
+      this.listeners.delete(listener);
+      if (this.listeners.size === 0) {
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
+    };
   }
 
   schedule() {
     if (this.closed) return;
     clearTimeout(this.timer);
+    this.timer = null;
+    // No one is subscribed: stop polling entirely instead of ticking an
+    // unattended bridge on a fixed interval. subscribe() resumes it.
+    if (this.listeners.size === 0) return;
     this.timer = setTimeout(() => {
       void this.refresh();
-    }, this.refreshMs);
+    }, this.nextRefreshMs());
     this.timer.unref?.();
   }
 
