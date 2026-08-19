@@ -233,4 +233,66 @@ try {
   await fs.rm(temporaryRoot, { recursive: true, force: true });
 }
 
+{
+  // An unattended bridge (no /bridge/events listener) must not poll the
+  // backends at all — each Claude probe is a real `claude -p /model` API
+  // call, so an unthrottled always-on timer means silent, unbounded LLM
+  // calls for as long as the bridge process is alive.
+  let claudeProbes = 0;
+  let codexProbes = 0;
+  const claudeReady = readyAgent("claude", {
+    models: [{ id: "claude/test", name: "Test", images: false, reasoning: null }],
+  });
+  const codexReady = readyAgent("codex", {
+    models: [{ id: "codex/test", name: "Test", images: false, reasoning: null }],
+  });
+  const store = new BridgeStateStore({
+    version: "test",
+    refreshMs: 15_000,
+    readyRefreshMs: 180_000,
+    backends: {
+      claude: {
+        initialState: () => startingAgent("claude", "Starting Claude Code"),
+        probe: async () => { claudeProbes += 1; return claudeReady; },
+      },
+      codex: {
+        initialState: () => startingAgent("codex", "Starting Codex"),
+        probe: async () => { codexProbes += 1; return codexReady; },
+      },
+    },
+  });
+
+  // No subscriber yet: no timer armed, no probes fired.
+  assert.equal(store.timer, null);
+  assert.equal(claudeProbes, 0);
+  assert.equal(codexProbes, 0);
+
+  // Subscribing resumes polling: an immediate refresh (not a stale wait for
+  // the next tick) plus an armed recurring timer.
+  const unsubscribe = store.subscribe(() => {});
+  await store.refresh();
+  assert.equal(claudeProbes, 1);
+  assert.equal(codexProbes, 1);
+  assert.notEqual(store.timer, null);
+
+  // Once every backend reports ready, the next interval backs off to the
+  // slow, "stable" cadence instead of the fast convergence one.
+  assert.equal(store.nextRefreshMs(), 180_000);
+
+  // Dropping the last listener stops polling entirely.
+  unsubscribe();
+  assert.equal(store.listeners.size, 0);
+  assert.equal(store.timer, null);
+
+  // A late-arriving state where a backend has not yet converged uses the
+  // fast cadence again.
+  store.value = {
+    bridge: "test",
+    agents: [startingAgent("claude", "Starting Claude Code"), codexReady],
+  };
+  assert.equal(store.nextRefreshMs(), 15_000);
+
+  store.close();
+}
+
 process.stdout.write("bridge unit ok\n");
